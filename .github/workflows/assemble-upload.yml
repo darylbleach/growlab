@@ -1,0 +1,40 @@
+name: Assemble upload chunks
+on:
+  push:
+    paths:
+      - '.growlab-upload/**'
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import os, base64, pathlib
+          root = pathlib.Path('.growlab-upload')
+          if not root.exists():
+            raise SystemExit(0)
+          for manifest in root.glob('*.manifest'):
+            target = manifest.read_text().strip()
+            stem = manifest.stem
+            chunks = sorted(root.glob(f'{stem}.*.b64'), key=lambda p: int(p.stem.split('.')[-1]))
+            data = b''.join(base64.b64decode(p.read_text().strip()) for p in chunks)
+            pathlib.Path(target).parent.mkdir(parents=True, exist_ok=True)
+            pathlib.Path(target).write_bytes(data)
+            print('wrote', target, len(data))
+            for p in chunks:
+              p.unlink()
+            manifest.unlink()
+          PY
+      - name: Commit
+        run: |
+          git config user.name "growlab-assembler"
+          git config user.email "assembler@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "nothing" && exit 0
+          git commit -m "Assemble uploaded source chunks"
+          git push
