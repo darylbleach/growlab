@@ -1,0 +1,51 @@
+{
+  "name": "growlab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal X growth OS on Cloudflare — Hono API + React dashboard",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:web\" \"pnpm dev:worker\"",
+    "dev:web": "vite",
+    "dev:worker": "wrangler dev",
+    "build": "vite build",
+    "deploy": "pnpm build && wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply growlab --remote",
+    "db:migrate:local": "wrangler d1 migrations apply growlab --local",
+    "types": "wrangler types"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "@esbuild/linux-x64",
+      "sharp"
+    ]
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^5.20260920.1",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.8",
+    "jose": "^6.2.12",
+    "nanoid": "^6.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "wrangler": "^4.135.0"
+  }
+}
