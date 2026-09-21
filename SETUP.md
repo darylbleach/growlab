@@ -15,8 +15,8 @@ Change it in Cloudflare Dashboard → Workers & Pages → **growlab** → Settin
 
 | Secret | Notes |
 |--------|--------|
-| `X_CLIENT_ID` / `X_CLIENT_SECRET` | **OAuth 2.0** Client ID & Client Secret from [console.x.com](https://console.x.com) → your app → **Keys and tokens**. **Connect X uses these** (confidential Web App). Client ID should decode to a `:ci` confidential client. |
-| `X_API_KEY` / `X_API_SECRET` | OAuth 1.0a Consumer Key/Secret. Used for signing some API calls; OAuth 1.0a Connect cannot finish on Workers because X returns HTTP 500 HTML on `/oauth/access_token` from Worker egress. |
+| `X_CLIENT_ID` / `X_CLIENT_SECRET` | OAuth 2.0 Client ID & Client Secret. Not used by the Connect button. A Worker probe with a fake code returns `unauthorized_client` (stored secret rejected). Client ID `VUVocGhQ…` is a confidential `:ci` client. |
+| `X_API_KEY` / `X_API_SECRET` | OAuth 1.0a Consumer Key/Secret. **Connect X uses these.** |
 | `X_BEARER_TOKEN` | App-only bearer (optional) |
 | `OPENAI_API_KEY` | OpenAI — needs billing credits on the OpenAI org |
 | `ANTHROPIC_API_KEY` | optional Anthropic fallback |
@@ -51,8 +51,8 @@ If X shows **"Something went wrong / You weren't able to give access to the App"
      ```
 
 6. Click **Save**.
-7. Open **Keys and tokens** → confirm OAuth 2.0 Client ID starts with `VUVocGhQ…` (Grow Lab 2). If you regenerated the Client Secret after saving User auth, paste the new secret into Worker secret `X_CLIENT_SECRET` (and keep `X_CLIENT_ID` in sync).
-8. Retry **Connect X** on the dashboard (OAuth 2.0). Probe: `GET /oauth/x/probe` while logged in — expect `credentials_ok: true`.
+7. Open **Keys and tokens** → OAuth 1.0a API Key and API Secret must match Worker secrets `X_API_KEY` / `X_API_SECRET`.
+8. Retry **Connect X** on the dashboard. That opens `/oauth/x/start` (OAuth 1.0a). After you approve, you land on `/?connected=1&via=oauth1`.
 
 ### Debug probe (logged-in)
 
@@ -77,7 +77,7 @@ https://x.com/i/oauth2/authorize
 
 Token exchange: `POST https://api.x.com/2/oauth2/token` with `Authorization: Basic base64(client_id:client_secret)` + PKCE `code_verifier` (confidential / Web App).
 
-### OAuth 2.0 — what Connect X uses
+### Connect X click path
 
 The dashboard **Connect X** button opens:
 
@@ -85,7 +85,9 @@ The dashboard **Connect X** button opens:
 https://growlab.darylbleach.workers.dev/oauth/x/start
 ```
 
-That uses Worker secrets `X_CLIENT_ID` / `X_CLIENT_SECRET`. OAuth 1.0a `/oauth/x/start-oauth1` remains available for diagnostics, but X returns HTTP 500 HTML on Worker `access_token` calls (Cloudflare Worker egress), so that path cannot finish Connect.
+That is OAuth 1.0a (`X_API_KEY` / `X_API_SECRET`): request token, approve on X, then `POST https://api.x.com/oauth/access_token` with the verifier in the form body and **no** `x-real-ip` header. From this Worker, a real request token plus a dummy verifier returns `401 Invalid oauth_verifier` (not the icecream HTML 500). A real approval stores encrypted tokens and redirects to `/?connected=1&via=oauth1`.
+
+`/oauth/x/start-oauth1` is the same handler. `/oauth/x/start-oauth2` is the PKCE path and is not the button.
 
 Callback:
 
@@ -93,11 +95,7 @@ Callback:
 https://growlab.darylbleach.workers.dev/oauth/x/callback
 ```
 
-After you approve the app, GrowLab exchanges the auth code (PKCE + Basic client auth), encrypts tokens, and redirects to `/?connected=1`.
-
-### OAuth 1.0a note
-
-`request_token` works from the Worker; `access_token` returns X's icecream 500 HTML from Worker IPs even with `x-real-ip` / `x-forwarded-for` (cross-zone CF→`api.x.com` rewrites client-IP headers). Probe: `GET /oauth/x/access-token-probe`.
+Logged-in probe: `GET /oauth/x/probe-fresh`. OAuth 1 variants should show `Invalid oauth_verifier`. OAuth 2 `authcode_basic` still returns `unauthorized_client` for the stored client secret.
 
 ### Debug probe (logged-in) — expanded
 
@@ -105,7 +103,7 @@ After you approve the app, GrowLab exchanges the auth code (PKCE + Basic client 
 GET https://growlab.darylbleach.workers.dev/oauth/x/probe
 ```
 
-Returns multi-host / multi-style token trials (Basic raw, RFC-urlencoded Basic, body-only, mutated secret, API-secret swap), secret fingerprints (no values), and an OAuth 1.0a `request_token` probe. Expect `credentials_ok: true` for OAuth 2.
+Returns multi-host / multi-style token trials, secret fingerprints (no values), and an OAuth 1.0a `request_token` probe. Connect does not depend on `credentials_ok` for OAuth 2. Use `GET /oauth/x/probe-fresh` to confirm `Invalid oauth_verifier`.
 
 - Bluesky: Settings UI, or secrets `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`
 - CLI: create an API key in Settings, then `GROWLAB_URL=https://growlab.darylbleach.workers.dev GROWLAB_KEY=glk_... node apps/cli/growlab.mjs me`
