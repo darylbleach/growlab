@@ -1,0 +1,8 @@
+import type { Env } from "../env";
+
+/** Restored stub — full oauth1.ts deployed on Worker; see commit d01673e locally. */
+export const OAUTH1_ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
+export function isIpv4(c: string | null | undefined): boolean {
+  const ip = (c || "").trim();
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
+}
