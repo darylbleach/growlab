@@ -1,67 +1,97 @@
-# GrowLab — live setup
+# GrowLab — you're live
 
-**URL:** https://growlab.darylbleach.workers.dev
+**App:** https://growlab.darylbleach.workers.dev  
+**Source:** https://github.com/darylbleach/growlab
 
-## Login
-
-App password (also stored as Worker secret `APP_PASSWORD`):
+## Login password
 
 ```
 9f3d851ee2c83d5052bfd2587baffc75
 ```
 
-Change it anytime in Cloudflare → Workers → growlab → Settings → Variables → `APP_PASSWORD`.
+Change it in Cloudflare Dashboard → Workers & Pages → **growlab** → Settings → Variables and Secrets → `APP_PASSWORD`.
 
-## To unlock X posting / AI (do when you wake up)
+## Unlock X + AI
 
-Add these Worker secrets on `growlab`:
+| Secret | Notes |
+|--------|--------|
+| `X_CLIENT_ID` / `X_CLIENT_SECRET` | **OAuth 2.0** Client ID & Client Secret from [console.x.com](https://console.x.com) → your app → **Keys and tokens** (not the OAuth 1.0a API Key/Secret). Client ID should decode to a `:ci` confidential client for Web App. |
+| `X_API_KEY` / `X_API_SECRET` | OAuth 1.0a Consumer Key/Secret (optional legacy; Connect X uses OAuth 2.0) |
+| `X_BEARER_TOKEN` | App-only bearer (optional) |
+| `OPENAI_API_KEY` | OpenAI — needs billing credits on the OpenAI org |
+| `ANTHROPIC_API_KEY` | optional Anthropic fallback |
 
-1. `X_CLIENT_ID` — from https://console.x.com
-2. `X_CLIENT_SECRET`
-3. `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`
+## Connect X — console.x.com checklist (required)
 
-X OAuth callback URL to register:
+If X shows **"Something went wrong / You weren't able to give access to the App"**, check in this order:
+
+1. **Website URL is filled** (required field on the same form as Callback — easy to miss below the fold).
+2. **OAuth 2.0 Client ID + Client Secret are valid** for the current app type (Web App / confidential).  
+   GrowLab probes the token endpoint with the stored secrets; `invalid_client` means regenerate keys (do **not** reuse a secret generated while the app was Native/Public, and do **not** paste from a screenshot/OCR).
+3. User authentication is **Saved** (not stuck on **Set up**).
+
+### Form fields
+
+1. Open [console.x.com](https://console.x.com) → your Project → app (**Grow Lab** / similar).
+2. Find **User authentication settings** → **Edit**.
+3. **App permissions** → **Read and write and Direct message**.  
+   GrowLab requests `tweet.read tweet.write users.read offline.access like.read follows.read dm.read dm.write`.
+4. **Type of App** → **Web App, Automated App or Bot** (confidential). Not Native / SPA.
+5. **App info**  
+   - **Callback URI / Redirect URL** (exact, no trailing slash):
+
+     ```
+     https://growlab.darylbleach.workers.dev/oauth/x/callback
+     ```
+
+   - **Website URL** (required):
+
+     ```
+     https://growlab.darylbleach.workers.dev
+     ```
+
+6. Click **Save**.
+7. Open **Keys and tokens** → under **OAuth 2.0 Client ID and Client Secret**, click **Regenerate** for the Client Secret (after Web App is saved). Copy **Client ID** and **Client Secret** as text (not a screenshot).
+8. Paste both into chat (or set Worker secrets `X_CLIENT_ID` / `X_CLIENT_SECRET`), then retry **Connect X**.
+
+### Debug probe (logged-in)
 
 ```
-https://growlab.darylbleach.workers.dev/oauth/x/callback
+GET https://growlab.darylbleach.workers.dev/oauth/x/probe
 ```
 
-Then open GrowLab → **Connect X**.
+Expect `credentials_ok: true` (token error `invalid_grant` for a fake code). `invalid_client` means the stored Client ID/Secret are wrong.
 
-Optional:
+### What GrowLab sends (for debugging)
 
-- `BLUESKY_HANDLE` / `BLUESKY_APP_PASSWORD` or connect in Settings UI
-
-## Cloudflare resources created
-
-| Resource | Name / ID |
-|----------|-----------|
-| Worker | `growlab` |
-| D1 | `growlab` (`aa0c5b25-6ebe-4a07-92c7-652a4cb729a1`) |
-| R2 | `growlab-media` |
-| KV | `GROWLAB_KV` (`496a933e0a2049ca8a0e03a87e52b3b6`) |
-| Queue | `growlab-jobs` |
-| Cron | `* * * * *` |
-
-## Redeploy from this repo
-
-```bash
-pnpm install
-pnpm build
-# upload dist via bootstrap or wrangler:
-pnpm exec wrangler deploy
+```
+https://x.com/i/oauth2/authorize
+  ?response_type=code
+  &client_id=<X_CLIENT_ID>
+  &redirect_uri=https://growlab.darylbleach.workers.dev/oauth/x/callback
+  &scope=tweet.read%20tweet.write%20users.read%20offline.access%20like.read%20follows.read%20dm.read%20dm.write
+  &state=...
+  &code_challenge=...
+  &code_challenge_method=S256
 ```
 
-Or with the deploy uploader (secret `DEPLOY_SECRET` on the Worker):
+Token exchange: `POST https://api.x.com/2/oauth2/token` with `Authorization: Basic base64(client_id:client_secret)` + PKCE `code_verifier` (confidential / Web App).
 
-```bash
-SECRET=... # from Cloudflare secrets
-BASE=https://growlab.darylbleach.workers.dev
-curl -X PUT "$BASE/__deploy?key=deploy/worker.js" -H "x-deploy-secret: $SECRET" --data-binary @dist/worker.js
-# then re-PUT the worker script via wrangler / API (see scripts/deploy-from-r2)
-```
+## Optional
 
-## Safety
+- Bluesky: Settings UI, or secrets `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`
+- CLI: create an API key in Settings, then `GROWLAB_URL=https://growlab.darylbleach.workers.dev GROWLAB_KEY=glk_... node apps/cli/growlab.mjs me`
 
-- DMs never auto-send; require explicit flush with confirm
-- Automations are per-post opt-in
+## Cloudflare resources
+
+- Worker: `growlab`
+- D1: `growlab`
+- R2: `growlab-media` (SPA under `site/`)
+- KV: `GROWLAB_KV`
+- Queue: `growlab-jobs` + consumer
+- Cron: every minute
+
+## What works without X/AI secrets
+
+Login, dashboard UI, drafts stored in D1, settings, API keys, usage meter.  
+Posting / analytics sync / engage / signals / AI need the secrets above.
