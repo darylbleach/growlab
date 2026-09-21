@@ -12,6 +12,11 @@ export interface Env {
   DEPLOY_SECRET?: string;
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
+  /** OAuth 1.0a consumer key (API Key) — separate from OAuth 2.0 Client ID */
+  X_API_KEY?: string;
+  /** OAuth 1.0a consumer secret (API Secret) */
+  X_API_SECRET?: string;
+  X_BEARER_TOKEN?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   BLUESKY_HANDLE?: string;
