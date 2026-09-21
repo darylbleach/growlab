@@ -56,7 +56,7 @@ export async function oauth1Header(
 
   const header = Object.keys(oauth)
     .sort()
-    .map((k) => `${percentEncode(k)}=\"${percentEncode(oauth[k])}\"`)
+    .map((k) => `${percentEncode(k)}="${percentEncode(oauth[k])}"`)
     .join(", ");
   return `OAuth ${header}`;
 }
