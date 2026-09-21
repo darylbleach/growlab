@@ -21,7 +21,26 @@ import { getAccount } from "../services/posts";
 import { logUsage } from "../lib/ai";
 
 async function accountIdOrMain(c: any, userId: string) {
-  return c.req.query("account_id") || (await getMainAccount(c.env.DB, userId))?.id || null;
+  const fromQuery = c.req.query("account_id");
+  if (fromQuery) return fromQuery;
+  const main = await getMainAccount(c.env.DB, userId);
+  if (main?.id) return main.id;
+
+  // Seed a local stub so AI writers work before Connect X
+  const stubId = id("acc");
+  await c.env.DB.prepare(
+    `INSERT INTO x_accounts (id, user_id, x_user_id, handle, display_name, access_token_enc, refresh_token_enc, scopes, is_main)
+     VALUES (?, ?, 'local', 'local', 'Local draft account', '', NULL, 'local', 1)`,
+  )
+    .bind(stubId, userId)
+    .run();
+  await c.env.DB.prepare(`INSERT OR IGNORE INTO context_settings (account_id) VALUES (?)`)
+    .bind(stubId)
+    .run();
+  await c.env.DB.prepare(`INSERT OR IGNORE INTO queue_settings (account_id) VALUES (?)`)
+    .bind(stubId)
+    .run();
+  return stubId;
 }
 
 export const aiRoutes = new Hono<{ Bindings: Env }>();
@@ -32,11 +51,16 @@ aiRoutes.post("/write", async (c) => {
   if (!aiConfigured(c.env)) {
     return c.json({ error: { code: "ai_not_configured", message: "Set OPENAI_API_KEY or ANTHROPIC_API_KEY" } }, 400);
   }
-  const accountId = await accountIdOrMain(c, user);
-  if (!accountId) return c.json({ error: { code: "no_account" } }, 400);
-  const body = await c.req.json<{ brief: string }>();
-  const text = await writeDraft(c.env, accountId, body.brief);
-  return c.json({ data: { text } });
+  try {
+    const accountId = await accountIdOrMain(c, user);
+    if (!accountId) return c.json({ error: { code: "no_account" } }, 400);
+    const body = await c.req.json<{ brief: string }>();
+    const text = await writeDraft(c.env, accountId, body.brief);
+    return c.json({ data: { text } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: { code: "ai_failed", message } }, 502);
+  }
 });
 
 aiRoutes.post("/rewrite", async (c) => {
