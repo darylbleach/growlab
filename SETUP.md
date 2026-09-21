@@ -23,16 +23,20 @@ Change it in Cloudflare Dashboard → Workers & Pages → **growlab** → Settin
 
 ## Connect X — console.x.com checklist (required)
 
-The live authorize URL is correct. If X shows **"Something went wrong / You weren't able to give access to the App"**, User authentication is almost always still on **Set up** (not configured). Complete every field below, **Save**, wait ~1–2 minutes, then retry **Connect X**.
+If X shows **"Something went wrong / You weren't able to give access to the App"**, check in this order:
+
+1. **Website URL is filled** (required field on the same form as Callback — easy to miss below the fold).
+2. **OAuth 2.0 Client ID + Client Secret are valid** for the current app type (Web App / confidential).  
+   GrowLab probes the token endpoint with the stored secrets; `invalid_client` means regenerate keys (do **not** reuse a secret generated while the app was Native/Public, and do **not** paste from a screenshot/OCR).
+3. User authentication is **Saved** (not stuck on **Set up**).
+
+### Form fields
 
 1. Open [console.x.com](https://console.x.com) → your Project → app (**Grow Lab** / similar).
-2. Find **User authentication settings** → click **Set up** (or **Edit** if already configured).
-3. **App permissions**  
-   Choose **Read and write and Direct message**.  
-   GrowLab requests `tweet.read tweet.write users.read offline.access like.read follows.read dm.read dm.write`. Without Direct message, DM scopes can cause authorize to fail.
-4. **Type of App**  
-   Choose **Web App, Automated App or Bot** (confidential client).  
-   Do **not** choose Native App / Single Page App — those are public (`:na`) clients; GrowLab exchanges the code with HTTP Basic + Client Secret.
+2. Find **User authentication settings** → **Edit**.
+3. **App permissions** → **Read and write and Direct message**.  
+   GrowLab requests `tweet.read tweet.write users.read offline.access like.read follows.read dm.read dm.write`.
+4. **Type of App** → **Web App, Automated App or Bot** (confidential). Not Native / SPA.
 5. **App info**  
    - **Callback URI / Redirect URL** (exact, no trailing slash):
 
@@ -40,16 +44,23 @@ The live authorize URL is correct. If X shows **"Something went wrong / You were
      https://growlab.darylbleach.workers.dev/oauth/x/callback
      ```
 
-   - **Website URL**:
+   - **Website URL** (required):
 
      ```
      https://growlab.darylbleach.workers.dev
      ```
 
-   - Optional: Organization name / Terms / Privacy can be left blank or set to the same site.
-6. Click **Save**. Confirm the page no longer only shows **Set up** — it should show configured OAuth 2.0 / permissions summary.
-7. Open **Keys and tokens** → confirm **OAuth 2.0 Client ID** is still `MHVmcXl0RVZ1SURSZGxPM19HY0s6MTpjaQ` (or update Worker secrets `X_CLIENT_ID` / `X_CLIENT_SECRET` if X rotated them after save).
-8. In GrowLab → Settings → **Connect X** → authorize on X → you should land back on `/?connected=1`.
+6. Click **Save**.
+7. Open **Keys and tokens** → under **OAuth 2.0 Client ID and Client Secret**, click **Regenerate** for the Client Secret (after Web App is saved). Copy **Client ID** and **Client Secret** as text (not a screenshot).
+8. Paste both into chat (or set Worker secrets `X_CLIENT_ID` / `X_CLIENT_SECRET`), then retry **Connect X**.
+
+### Debug probe (logged-in)
+
+```
+GET https://growlab.darylbleach.workers.dev/oauth/x/probe
+```
+
+Expect `credentials_ok: true` (token error `invalid_grant` for a fake code). `invalid_client` means the stored Client ID/Secret are wrong.
 
 ### What GrowLab sends (for debugging)
 
