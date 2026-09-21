@@ -32,7 +32,7 @@ async function openaiChat(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: opts?.model || "gpt-4.1-mini",
+      model: opts?.model || "gpt-4o-mini",
       temperature: opts?.temperature ?? 0.7,
       max_tokens: opts?.maxTokens ?? 1200,
       messages,

@@ -12,6 +12,9 @@ export interface Env {
   DEPLOY_SECRET?: string;
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
+  X_API_KEY?: string;
+  X_API_SECRET?: string;
+  X_BEARER_TOKEN?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   BLUESKY_HANDLE?: string;

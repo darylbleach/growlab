@@ -1,67 +1,52 @@
-# GrowLab — live setup
+# GrowLab — you're live
 
-**URL:** https://growlab.darylbleach.workers.dev
+**App:** https://growlab.darylbleach.workers.dev  
+**Source:** https://github.com/darylbleach/growlab
 
-## Login
-
-App password (also stored as Worker secret `APP_PASSWORD`):
+## Login password
 
 ```
 9f3d851ee2c83d5052bfd2587baffc75
 ```
 
-Change it anytime in Cloudflare → Workers → growlab → Settings → Variables → `APP_PASSWORD`.
+Change it in Cloudflare Dashboard → Workers & Pages → **growlab** → Settings → Variables and Secrets → `APP_PASSWORD`.
 
-## To unlock X posting / AI (do when you wake up)
+## Unlock X + AI
 
-Add these Worker secrets on `growlab`:
+| Secret | Notes |
+|--------|--------|
+| `X_API_KEY` / `X_API_SECRET` | Consumer Key/Secret from [console.x.com](https://console.x.com) → Keys and tokens (OAuth 1.0a). Paste as text — screenshot OCR is unreliable. |
+| `X_CLIENT_ID` / `X_CLIENT_SECRET` | Same Consumer Key/Secret mirrored (optional) |
+| `X_BEARER_TOKEN` | App-only bearer (optional) |
+| `OPENAI_API_KEY` | OpenAI — needs billing credits on the OpenAI org |
+| `ANTHROPIC_API_KEY` | optional Anthropic fallback |
 
-1. `X_CLIENT_ID` — from https://console.x.com
-2. `X_CLIENT_SECRET`
-3. `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`
+**X app settings (User authentication / OAuth 1.0a):**
 
-X OAuth callback URL to register:
+- Callback URL (must match exactly):
 
 ```
 https://growlab.darylbleach.workers.dev/oauth/x/callback
 ```
 
-Then open GrowLab → **Connect X**.
+- Enable **Read and write** (+ Direct Messages if you want Engage DMs)
+- Then open GrowLab → **Connect X**
 
-Optional:
+## Optional
 
-- `BLUESKY_HANDLE` / `BLUESKY_APP_PASSWORD` or connect in Settings UI
+- Bluesky: Settings UI, or secrets `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`
+- CLI: create an API key in Settings, then `GROWLAB_URL=https://growlab.darylbleach.workers.dev GROWLAB_KEY=glk_... node apps/cli/growlab.mjs me`
 
-## Cloudflare resources created
+## Cloudflare resources
 
-| Resource | Name / ID |
-|----------|-----------|
-| Worker | `growlab` |
-| D1 | `growlab` (`aa0c5b25-6ebe-4a07-92c7-652a4cb729a1`) |
-| R2 | `growlab-media` |
-| KV | `GROWLAB_KV` (`496a933e0a2049ca8a0e03a87e52b3b6`) |
-| Queue | `growlab-jobs` |
-| Cron | `* * * * *` |
+- Worker: `growlab`
+- D1: `growlab`
+- R2: `growlab-media` (SPA under `site/`)
+- KV: `GROWLAB_KV`
+- Queue: `growlab-jobs` + consumer
+- Cron: every minute
 
-## Redeploy from this repo
+## What works without X/AI secrets
 
-```bash
-pnpm install
-pnpm build
-# upload dist via bootstrap or wrangler:
-pnpm exec wrangler deploy
-```
-
-Or with the deploy uploader (secret `DEPLOY_SECRET` on the Worker):
-
-```bash
-SECRET=... # from Cloudflare secrets
-BASE=https://growlab.darylbleach.workers.dev
-curl -X PUT "$BASE/__deploy?key=deploy/worker.js" -H "x-deploy-secret: $SECRET" --data-binary @dist/worker.js
-# then re-PUT the worker script via wrangler / API (see scripts/deploy-from-r2)
-```
-
-## Safety
-
-- DMs never auto-send; require explicit flush with confirm
-- Automations are per-post opt-in
+Login, dashboard UI, drafts stored in D1, settings, API keys, usage meter.  
+Posting / analytics sync / engage / signals / AI need the secrets above.

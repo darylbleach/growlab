@@ -98,7 +98,9 @@ app.get("/api/me", async (c) => {
     data: {
       user_id: user,
       accounts: accounts.results || [],
-      x_configured: Boolean(c.env.X_CLIENT_ID && c.env.X_CLIENT_SECRET),
+      x_configured: Boolean(
+        (c.env.X_API_KEY || c.env.X_CLIENT_ID) && (c.env.X_API_SECRET || c.env.X_CLIENT_SECRET),
+      ),
       ai_configured: Boolean(c.env.OPENAI_API_KEY || c.env.ANTHROPIC_API_KEY),
     },
   });
@@ -255,7 +257,11 @@ async function serveSite(env: Env, pathname: string): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/api") || url.pathname.startsWith("/oauth")) {
+    if (
+      url.pathname.startsWith("/api") ||
+      url.pathname.startsWith("/oauth") ||
+      url.pathname.startsWith("/__deploy")
+    ) {
       return app.fetch(request, env, ctx);
     }
     return serveSite(env, url.pathname);
