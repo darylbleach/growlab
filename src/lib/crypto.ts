@@ -46,6 +46,26 @@ export async function sha256Hex(input: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function base64Url(bytes: ArrayBuffer | Uint8Array): string {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let s = "";
+  for (let i = 0; i < arr.length; i += 0x8000) {
+    s += String.fromCharCode(...arr.subarray(i, i + 0x8000));
+  }
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+/** PKCE code_verifier (43–128 chars, URL-safe). */
+export function pkceVerifier(): string {
+  return base64Url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+/** S256 code_challenge for a verifier. */
+export async function pkceChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return base64Url(digest);
+}
+
 export function id(prefix = ""): string {
   const rand = crypto.randomUUID().replace(/-/g, "");
   return prefix ? `${prefix}_${rand.slice(0, 20)}` : rand;

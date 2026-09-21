@@ -7,3 +7,4 @@ dist/
 deploy-*.js
 deploy-*.css
 deploy-*.html
+deploy-artifacts/
