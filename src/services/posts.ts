@@ -1,5 +1,14 @@
 import type { Env } from "../env";
-import { estimateXWriteCost, createTweet, getValidAccessToken, type AccountTokens } from "../lib/x";
+import {
+  createTweet,
+  deleteTweet,
+  estimateXWriteCost,
+  getValidAccessToken,
+  retweet,
+  sendDm,
+  xFetch,
+  type AccountTokens,
+} from "../lib/x";
 import { logUsage } from "../lib/ai";
 
 export async function getAccount(db: D1Database, accountId: string) {
@@ -237,11 +246,9 @@ export async function runDueAutomations(env: Env) {
       const token = await getValidAccessToken(env, account);
 
       if (ev.kind === "auto_retweet") {
-        const { retweet } = await import("./x");
         await retweet(env, token, account.x_user_id, payload.x_post_id);
       } else if (ev.kind === "auto_delete") {
         // Fetch metrics; delete if below threshold impressions
-        const { xFetch, deleteTweet } = await import("./x");
         const res = await xFetch(
           env,
           token,
@@ -260,7 +267,6 @@ export async function runDueAutomations(env: Env) {
           }
         }
       } else if (ev.kind === "auto_plug") {
-        const { xFetch, createTweet } = await import("./x");
         const res = await xFetch(
           env,
           token,
@@ -289,7 +295,6 @@ export async function runDueAutomations(env: Env) {
           }
         }
       } else if (ev.kind === "auto_dm") {
-        const { sendDm } = await import("./x");
         await sendDm(env, token, payload.recipient_id, payload.body);
       }
 
