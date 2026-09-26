@@ -249,6 +249,7 @@ articleRoutes.post("/", async (c) => {
     title: string;
     content_markdown: string;
     scheduled_for?: string | null;
+    cover_url?: string | null;
   }>();
   if (!body.title?.trim()) return c.json({ error: { code: "invalid", message: "title required" } }, 400);
   let scheduledFor: string | null = null;
@@ -257,12 +258,14 @@ articleRoutes.post("/", async (c) => {
   } catch {
     return c.json({ error: { code: "invalid", message: "invalid scheduled_for" } }, 400);
   }
+  const coverUrl =
+    typeof body.cover_url === "string" && body.cover_url.trim() ? body.cover_url.trim() : null;
   const articleId = id("art");
   const status = scheduledFor ? "scheduled" : "draft";
   await c.env.DB.prepare(
-    `INSERT INTO articles (id, account_id, title, content_markdown, status, scheduled_for) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO articles (id, account_id, title, content_markdown, status, scheduled_for, cover_url) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(articleId, accountId, body.title, body.content_markdown || "", status, scheduledFor)
+    .bind(articleId, accountId, body.title, body.content_markdown || "", status, scheduledFor, coverUrl)
     .run();
   const row = await c.env.DB.prepare(`SELECT * FROM articles WHERE id = ?`).bind(articleId).first();
   return c.json({ data: row }, 201);

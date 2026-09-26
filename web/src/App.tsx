@@ -990,6 +990,68 @@ function canEditArticle(status: string) {
   return status === "draft" || status === "scheduled" || status === "failed";
 }
 
+async function uploadCoverImage(fileList: FileList | null): Promise<string | null> {
+  const file = fileList?.[0];
+  if (!file) return null;
+  if (!COMPOSE_IMAGE_TYPES.includes(file.type)) {
+    throw new Error(`${file.name} is not a JPEG, PNG, GIF, or WebP image.`);
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error(`${file.name} is over 5MB.`);
+  }
+  const uploaded = await api.uploadMedia(file);
+  return uploaded.data.url;
+}
+
+function ArticleCoverField({
+  url,
+  disabled,
+  uploading,
+  onSelect,
+  onClear,
+}: {
+  url?: string | null;
+  disabled?: boolean;
+  uploading?: boolean;
+  onSelect: (files: FileList | null) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="stack">
+      <div className="row">
+        {!disabled && (
+          <label className="btn ghost" style={{ cursor: uploading ? "not-allowed" : "pointer" }}>
+            {uploading ? "Uploading…" : url ? "Replace cover" : "Add cover"}
+            <input
+              type="file"
+              accept={COMPOSE_IMAGE_TYPES.join(",")}
+              hidden
+              disabled={uploading}
+              onChange={(e) => {
+                onSelect(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        )}
+        {url && !disabled && (
+          <button type="button" className="btn secondary" onClick={onClear} disabled={uploading}>
+            Clear cover
+          </button>
+        )}
+        <span className="meta-inline">{url ? "Cover attached" : "No cover"}</span>
+      </div>
+      {url ? (
+        <div className="media-thumbs">
+          <div className="media-thumb article-cover">
+            <img src={url} alt="Article cover" />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Articles() {
   const [items, setItems] = useState<Article[]>([]);
   const [title, setTitle] = useState("");
@@ -1001,6 +1063,9 @@ function Articles() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editMd, setEditMd] = useState("");
+  const [createCoverUrl, setCreateCoverUrl] = useState<string | null>(null);
+  const [createCoverBusy, setCreateCoverBusy] = useState(false);
+  const [editCoverBusy, setEditCoverBusy] = useState(false);
 
   async function load() {
     const rows = (await api.articles()).data;
@@ -1026,24 +1091,47 @@ function Articles() {
   return (
     <div>
       <h1 className="page-title">Articles</h1>
-      <p className="page-sub">Schedule or publish now to X Articles (Premium). Cron only picks status=scheduled.</p>
+      <p className="page-sub">Schedule or publish now to X Articles (Premium). Cron only picks status=scheduled. Cover images upload to R2 and go to X at publish.</p>
       <div className="panel stack" style={{ marginBottom: 16 }}>
         <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
         <textarea className="textarea" value={md} onChange={(e) => setMd(e.target.value)} placeholder="Markdown body" />
+        <ArticleCoverField
+          url={createCoverUrl}
+          uploading={createCoverBusy}
+          onSelect={async (files) => {
+            setErr(""); setMsg("");
+            setCreateCoverBusy(true);
+            try {
+              const url = await uploadCoverImage(files);
+              if (url) setCreateCoverUrl(url);
+            } catch (e) {
+              setErr(e instanceof Error ? e.message : "Cover upload failed");
+            } finally {
+              setCreateCoverBusy(false);
+            }
+          }}
+          onClear={() => setCreateCoverUrl(null)}
+        />
         <input className="input" style={{ maxWidth: 260 }} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
         <div className="row">
           <button
             className="btn"
+            disabled={createCoverBusy}
             onClick={async () => {
               setErr(""); setMsg("");
-              await api.createArticle({
-                title,
-                content_markdown: md,
-                scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
-              });
-              await load();
-              setTitle(""); setMd(""); setScheduledFor("");
-              setMsg("Saved.");
+              try {
+                await api.createArticle({
+                  title,
+                  content_markdown: md,
+                  scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+                  cover_url: createCoverUrl,
+                });
+                await load();
+                setTitle(""); setMd(""); setScheduledFor(""); setCreateCoverUrl(null);
+                setMsg("Saved.");
+              } catch (e) {
+                setErr(e instanceof Error ? e.message : "Save failed");
+              }
             }}
           >
             Save draft
@@ -1135,6 +1223,39 @@ function Articles() {
                   onChange={(e) => setEditTitle(e.target.value)}
                   placeholder="Title"
                 />
+                <ArticleCoverField
+                  url={a.cover_url}
+                  disabled={!editable}
+                  uploading={editCoverBusy}
+                  onSelect={async (files) => {
+                    setErr(""); setMsg("");
+                    setEditCoverBusy(true);
+                    try {
+                      const url = await uploadCoverImage(files);
+                      if (!url) return;
+                      await api.patchArticle(a.id, { cover_url: url });
+                      await load();
+                      setMsg("Cover saved.");
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : "Cover upload failed");
+                    } finally {
+                      setEditCoverBusy(false);
+                    }
+                  }}
+                  onClear={async () => {
+                    setErr(""); setMsg("");
+                    setEditCoverBusy(true);
+                    try {
+                      await api.patchArticle(a.id, { cover_url: null });
+                      await load();
+                      setMsg("Cover cleared.");
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : "Clear cover failed");
+                    } finally {
+                      setEditCoverBusy(false);
+                    }
+                  }}
+                />
                 <div className="grid-2">
                   <textarea
                     className="textarea article-body"
@@ -1149,6 +1270,7 @@ function Articles() {
                   <div className="row">
                     <button
                       className="btn"
+                      disabled={editCoverBusy}
                       onClick={async () => {
                         setErr(""); setMsg("");
                         try {
