@@ -60,7 +60,7 @@ async function anthropicChat(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: opts?.model || "claude-sonnet-4-20250514",
+      model: opts?.model || "claude-sonnet-4-6",
       max_tokens: opts?.maxTokens ?? 1200,
       temperature: opts?.temperature ?? 0.7,
       system: system || undefined,
