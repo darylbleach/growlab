@@ -37,7 +37,11 @@ export const api = {
   publishPost: (id: string) => request(`/api/posts/${id}/publish`, { method: "POST", body: "{}" }),
   deletePost: (id: string) => request(`/api/posts/${id}`, { method: "DELETE" }),
   write: (brief: string) => request<{ data: { text: string } }>("/api/ai/write", { method: "POST", body: JSON.stringify({ brief }) }),
-  rewrite: (text: string, closeness = 50) => request<{ data: { text: string } }>("/api/ai/rewrite", { method: "POST", body: JSON.stringify({ text, closeness }) }),
+  rewrite: (text: string, closeness = 50, instruction?: string) =>
+    request<{ data: { text: string } }>("/api/ai/rewrite", {
+      method: "POST",
+      body: JSON.stringify({ text, closeness, ...(instruction ? { instruction } : {}) }),
+    }),
   thread: (brief: string, parts = 5) => request<{ data: { parts: string[] } }>("/api/ai/thread", { method: "POST", body: JSON.stringify({ brief, parts }) }),
   score: (text: string) => request<{ data: any }>("/api/ai/score", { method: "POST", body: JSON.stringify({ text }) }),
   reply: (text: string, author?: string) => request<{ data: { text: string } }>("/api/ai/reply", { method: "POST", body: JSON.stringify({ text, author }) }),
