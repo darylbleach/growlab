@@ -47,8 +47,13 @@ aiRoutes.post("/rewrite", async (c) => {
   const accountId = await accountIdOrMain(c, user);
   if (!accountId) return c.json({ error: { code: "no_account" } }, 400);
   const body = await c.req.json<{ text: string; closeness?: number; instruction?: string }>();
-  const text = await rewriteDraft(c.env, accountId, body.text, body.closeness ?? 50, body.instruction);
-  return c.json({ data: { text } });
+  try {
+    const text = await rewriteDraft(c.env, accountId, body.text, body.closeness ?? 50, body.instruction);
+    return c.json({ data: { text } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Rewrite failed";
+    return c.json({ error: { code: "rewrite_failed", message } }, 500);
+  }
 });
 
 aiRoutes.post("/thread", async (c) => {
