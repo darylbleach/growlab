@@ -19,6 +19,7 @@ import {
 } from "../lib/x";
 import { getAccount } from "../services/posts";
 import { logUsage } from "../lib/ai";
+import { WORST_POSTS_SQL } from "../lib/analytics-worst";
 
 async function accountIdOrMain(c: any, userId: string) {
   return c.req.query("account_id") || (await getMainAccount(c.env.DB, userId))?.id || null;
@@ -188,9 +189,7 @@ analyticsRoutes.get("/", async (c) => {
     .bind(accountId)
     .all();
 
-  const worst = await c.env.DB.prepare(
-    `SELECT * FROM posts_cache WHERE account_id = ? AND is_reply = 0 ORDER BY impressions ASC, likes ASC LIMIT 10`,
-  )
+  const worst = await c.env.DB.prepare(WORST_POSTS_SQL)
     .bind(accountId)
     .all();
 
