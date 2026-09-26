@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { decryptText, encryptText } from "./crypto";
+import { consumerCreds, oauth1Header } from "./oauth1";
 
 const X_AUTH = "https://twitter.com/i/oauth2/authorize";
 const X_TOKEN = "https://api.twitter.com/2/oauth2/token";
@@ -18,6 +19,17 @@ export const X_SCOPES = [
 
 export function xConfigured(env: Env): boolean {
   return Boolean(env.X_CLIENT_ID && env.X_CLIENT_SECRET);
+}
+
+/** Auth context for user-context X API calls (OAuth 1.0a or OAuth 2.0). */
+export type XAuth = {
+  mode: "oauth1" | "oauth2";
+  accessToken: string;
+  tokenSecret?: string;
+};
+
+function resolveAuth(auth: XAuth | string): XAuth {
+  return typeof auth === "string" ? { mode: "oauth2", accessToken: auth } : auth;
 }
 
 export function buildAuthUrl(env: Env, state: string, codeChallenge: string): string {
@@ -94,24 +106,52 @@ export async function refreshAccessToken(env: Env, refreshToken: string) {
 
 export async function xFetch(
   env: Env,
-  accessToken: string,
+  auth: XAuth | string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetch(`${X_API}${path}`, {
+  const url = path.startsWith("http") ? path : `${X_API}${path}`;
+  const method = (init?.method || "GET").toUpperCase();
+  const xAuth = resolveAuth(auth);
+
+  if (xAuth.mode === "oauth1") {
+    const { key, secret } = consumerCreds(env);
+    if (!key || !secret) {
+      throw new Error("OAuth 1.0a consumer credentials missing (X_API_KEY / X_API_SECRET)");
+    }
+    const authorization = await oauth1Header(
+      method,
+      url,
+      key,
+      secret,
+      xAuth.accessToken,
+      xAuth.tokenSecret,
+    );
+    const headers: Record<string, string> = {
+      Authorization: authorization,
+      ...(init?.headers as Record<string, string> | undefined),
+    };
+    if (init?.body && !headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    return fetch(url, { ...init, method, headers });
+  }
+
+  return fetch(url, {
     ...init,
+    method,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${xAuth.accessToken}`,
       "Content-Type": "application/json",
       ...(init?.headers || {}),
     },
   });
 }
 
-export async function getMe(env: Env, accessToken: string) {
+export async function getMe(env: Env, auth: XAuth | string) {
   const res = await xFetch(
     env,
-    accessToken,
+    auth,
     "/users/me?user.fields=profile_image_url,description,public_metrics,verified",
   );
   if (!res.ok) throw new Error(`users/me failed: ${await res.text()}`);
@@ -128,13 +168,15 @@ export async function getMe(env: Env, accessToken: string) {
 
 export async function createTweet(
   env: Env,
-  accessToken: string,
+  auth: XAuth | string,
   text: string,
   replyTo?: string,
+  mediaIds?: string[],
 ): Promise<{ id: string }> {
   const body: Record<string, unknown> = { text };
   if (replyTo) body.reply = { in_reply_to_tweet_id: replyTo };
-  const res = await xFetch(env, accessToken, "/tweets", {
+  if (mediaIds?.length) body.media = { media_ids: mediaIds };
+  const res = await xFetch(env, auth, "/tweets", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -143,20 +185,76 @@ export async function createTweet(
   return json.data;
 }
 
-export async function deleteTweet(env: Env, accessToken: string, tweetId: string) {
-  const res = await xFetch(env, accessToken, `/tweets/${tweetId}`, { method: "DELETE" });
+const X_MEDIA_UPLOAD = "https://upload.twitter.com/1.1/media/upload.json";
+
+/**
+ * Upload image bytes to X via v1.1 media/upload (OAuth 1.0a).
+ * Never returns success without a media_id — callers must fail the post if this throws.
+ */
+export async function uploadMedia(
+  env: Env,
+  auth: XAuth | string,
+  bytes: ArrayBuffer,
+  mime: string,
+  filename = "image.jpg",
+): Promise<string> {
+  const xAuth = resolveAuth(auth);
+  if (xAuth.mode !== "oauth1") {
+    throw new Error(
+      "X media upload requires OAuth 1.0a (v1.1 media/upload). Reconnect X via OAuth 1.0a.",
+    );
+  }
+  const { key, secret } = consumerCreds(env);
+  if (!key || !secret) {
+    throw new Error("OAuth 1.0a consumer credentials missing (X_API_KEY / X_API_SECRET)");
+  }
+  if (!bytes.byteLength) {
+    throw new Error("media_unreadable: empty object");
+  }
+
+  const url = `${X_MEDIA_UPLOAD}?media_category=tweet_image`;
+  const authorization = await oauth1Header(
+    "POST",
+    url,
+    key,
+    secret,
+    xAuth.accessToken,
+    xAuth.tokenSecret,
+  );
+  const form = new FormData();
+  form.append(
+    "media",
+    new File([new Uint8Array(bytes)], filename, { type: mime || "application/octet-stream" }),
+  );
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: authorization },
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`X media upload failed: ${res.status} ${await res.text()}`);
+  }
+  const json = (await res.json()) as { media_id_string?: string; media_id?: number };
+  const mediaId = json.media_id_string || (json.media_id != null ? String(json.media_id) : "");
+  if (!mediaId) throw new Error("X media upload returned no media_id");
+  return mediaId;
+}
+
+export async function deleteTweet(env: Env, auth: XAuth | string, tweetId: string) {
+  const res = await xFetch(env, auth, `/tweets/${tweetId}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`delete tweet failed: ${await res.text()}`);
 }
 
-export async function retweet(env: Env, accessToken: string, userId: string, tweetId: string) {
-  const res = await xFetch(env, accessToken, `/users/${userId}/retweets`, {
+export async function retweet(env: Env, auth: XAuth | string, userId: string, tweetId: string) {
+  const res = await xFetch(env, auth, `/users/${userId}/retweets`, {
     method: "POST",
     body: JSON.stringify({ tweet_id: tweetId }),
   });
   if (!res.ok) throw new Error(`retweet failed: ${await res.text()}`);
 }
 
-export async function searchRecent(env: Env, accessToken: string, query: string, max = 20) {
+export async function searchRecent(env: Env, auth: XAuth | string, query: string, max = 20) {
   const params = new URLSearchParams({
     query,
     max_results: String(Math.min(Math.max(max, 10), 100)),
@@ -164,7 +262,7 @@ export async function searchRecent(env: Env, accessToken: string, query: string,
     expansions: "author_id",
     "user.fields": "username,name,profile_image_url,public_metrics,description",
   });
-  const res = await xFetch(env, accessToken, `/tweets/search/recent?${params}`);
+  const res = await xFetch(env, auth, `/tweets/search/recent?${params}`);
   if (!res.ok) throw new Error(`search failed: ${await res.text()}`);
   return res.json() as Promise<{
     data?: Array<{
@@ -193,13 +291,13 @@ export async function searchRecent(env: Env, accessToken: string, query: string,
   }>;
 }
 
-export async function listUserTweets(env: Env, accessToken: string, userId: string, max = 50) {
+export async function listUserTweets(env: Env, auth: XAuth | string, userId: string, max = 50) {
   const params = new URLSearchParams({
     max_results: String(Math.min(Math.max(max, 5), 100)),
     "tweet.fields": "public_metrics,created_at,in_reply_to_user_id",
     exclude: "retweets",
   });
-  const res = await xFetch(env, accessToken, `/users/${userId}/tweets?${params}`);
+  const res = await xFetch(env, auth, `/users/${userId}/tweets?${params}`);
   if (!res.ok) throw new Error(`user tweets failed: ${await res.text()}`);
   return res.json() as Promise<{
     data?: Array<{
@@ -221,12 +319,12 @@ export async function listUserTweets(env: Env, accessToken: string, userId: stri
 
 export async function sendDm(
   env: Env,
-  accessToken: string,
+  auth: XAuth | string,
   participantId: string,
   text: string,
 ) {
   // X DM API v2 conversation create
-  const res = await xFetch(env, accessToken, `/dm_conversations/with/${participantId}/messages`, {
+  const res = await xFetch(env, auth, `/dm_conversations/with/${participantId}/messages`, {
     method: "POST",
     body: JSON.stringify({ text }),
   });
@@ -241,15 +339,27 @@ export type AccountTokens = {
   access_token_enc: string;
   refresh_token_enc: string | null;
   token_expires_at: string | null;
+  scopes?: string | null;
 };
 
-export async function getValidAccessToken(env: Env, account: AccountTokens): Promise<string> {
-  let access = await decryptText(env.TOKEN_ENCRYPTION_SECRET, account.access_token_enc);
+export async function getValidAccessToken(env: Env, account: AccountTokens): Promise<XAuth> {
+  const access = await decryptText(env.TOKEN_ENCRYPTION_SECRET, account.access_token_enc);
+  const isOauth1 = (account.scopes || "").includes("oauth1");
+
+  if (isOauth1) {
+    if (!account.refresh_token_enc) {
+      throw new Error("OAuth 1.0a account missing token secret");
+    }
+    const tokenSecret = await decryptText(env.TOKEN_ENCRYPTION_SECRET, account.refresh_token_enc);
+    return { mode: "oauth1", accessToken: access, tokenSecret };
+  }
+
+  let accessToken = access;
   const expiresAt = account.token_expires_at ? new Date(account.token_expires_at).getTime() : 0;
   if (expiresAt && expiresAt < Date.now() + 60_000 && account.refresh_token_enc) {
     const refresh = await decryptText(env.TOKEN_ENCRYPTION_SECRET, account.refresh_token_enc);
     const tokens = await refreshAccessToken(env, refresh);
-    access = tokens.access_token;
+    accessToken = tokens.access_token;
     const accessEnc = await encryptText(env.TOKEN_ENCRYPTION_SECRET, tokens.access_token);
     const refreshEnc = tokens.refresh_token
       ? await encryptText(env.TOKEN_ENCRYPTION_SECRET, tokens.refresh_token)
@@ -261,7 +371,7 @@ export async function getValidAccessToken(env: Env, account: AccountTokens): Pro
       .bind(accessEnc, refreshEnc, exp, account.id)
       .run();
   }
-  return access;
+  return { mode: "oauth2", accessToken };
 }
 
 export function estimateXWriteCost(text: string): number {

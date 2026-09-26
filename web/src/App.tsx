@@ -244,6 +244,22 @@ function Home({
   );
 }
 
+const MAX_COMPOSE_IMAGES = 4;
+const COMPOSE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+type AttachedImage = { object_key: string; url: string; name: string };
+
+function mediaCountFromPost(post: ScheduledPost): number {
+  if (!post.parts_json) return 0;
+  try {
+    const parts = JSON.parse(post.parts_json) as Array<{ media_keys?: unknown }>;
+    if (!Array.isArray(parts)) return 0;
+    return parts.reduce((n, p) => n + (Array.isArray(p.media_keys) ? p.media_keys.length : 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
 function Compose({ aiConfigured }: { aiConfigured: boolean }) {
   const [text, setText] = useState("");
   const [brief, setBrief] = useState("");
@@ -252,18 +268,89 @@ function Compose({ aiConfigured }: { aiConfigured: boolean }) {
   const [err, setErr] = useState("");
   const [score, setScore] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [images, setImages] = useState<AttachedImage[]>([]);
   const [autoRt, setAutoRt] = useState("");
   const [autoDel, setAutoDel] = useState("");
   const [crossBsky, setCrossBsky] = useState(false);
 
+  async function attachFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    const remaining = MAX_COMPOSE_IMAGES - images.length;
+    if (remaining <= 0) {
+      setErr("At most 4 images.");
+      return;
+    }
+    setUploading(true);
+    setErr("");
+    try {
+      const next: AttachedImage[] = [];
+      for (const file of Array.from(fileList).slice(0, remaining)) {
+        if (!COMPOSE_IMAGE_TYPES.includes(file.type)) {
+          throw new Error(`${file.name} is not a JPEG, PNG, GIF, or WebP image.`);
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(`${file.name} is over 5MB.`);
+        }
+        const uploaded = await api.uploadMedia(file);
+        next.push({ object_key: uploaded.data.object_key, url: uploaded.data.url, name: file.name });
+      }
+      setImages((prev) => [...prev, ...next].slice(0, MAX_COMPOSE_IMAGES));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function mediaKeys() {
+    return images.map((img) => img.object_key);
+  }
+
+  const canSubmit = !busy && !uploading && Boolean(text.trim());
+
   return (
     <div>
       <h1 className="page-title">Compose</h1>
-      <p className="page-sub">Draft, score, schedule, or publish now.</p>
+      <p className="page-sub">Draft, score, schedule, or publish now. Attach 1–4 images; they publish with the post.</p>
       <div className="grid-2">
         <div className="panel stack">
           <h3>Post</h3>
           <textarea className="textarea" value={text} onChange={(e) => setText(e.target.value)} placeholder="What's worth posting?" />
+          <div className="row">
+            <label className="btn ghost" style={{ cursor: images.length >= MAX_COMPOSE_IMAGES || uploading ? "not-allowed" : "pointer" }}>
+              {uploading ? "Uploading…" : images.length >= MAX_COMPOSE_IMAGES ? "4 images attached" : "Add images"}
+              <input
+                type="file"
+                accept={COMPOSE_IMAGE_TYPES.join(",")}
+                multiple
+                hidden
+                disabled={uploading || images.length >= MAX_COMPOSE_IMAGES}
+                onChange={(e) => {
+                  void attachFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <span className="meta-inline">{images.length}/{MAX_COMPOSE_IMAGES} images</span>
+          </div>
+          {images.length > 0 && (
+            <div className="media-thumbs">
+              {images.map((img) => (
+                <div className="media-thumb" key={img.object_key}>
+                  <img src={img.url} alt={img.name} />
+                  <button
+                    type="button"
+                    className="media-thumb-remove"
+                    onClick={() => setImages((prev) => prev.filter((i) => i.object_key !== img.object_key))}
+                    aria-label={`Remove ${img.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="row">
             <input className="input" style={{ maxWidth: 260 }} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
             <label className="pill"><input type="checkbox" checked={crossBsky} onChange={(e) => setCrossBsky(e.target.checked)} /> Bluesky</label>
@@ -275,19 +362,21 @@ function Compose({ aiConfigured }: { aiConfigured: boolean }) {
           <div className="row">
             <button
               className="btn"
-              disabled={busy || !text.trim()}
+              disabled={!canSubmit}
               onClick={async () => {
                 setBusy(true); setErr(""); setMsg("");
                 try {
                   await api.createPost({
                     text,
+                    ...(images.length ? { media_keys: mediaKeys() } : {}),
                     scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
                     auto_retweet_hours: autoRt ? Number(autoRt) : null,
                     auto_delete_hours: autoDel ? Number(autoDel) : null,
                     cross_post_bluesky: crossBsky,
                   });
-                  setMsg("Saved.");
+                  setMsg(images.length ? "Saved with images." : "Saved.");
                   setText("");
+                  setImages([]);
                 } catch (e) {
                   setErr(e instanceof Error ? e.message : "Failed");
                 } finally {
@@ -299,13 +388,19 @@ function Compose({ aiConfigured }: { aiConfigured: boolean }) {
             </button>
             <button
               className="btn secondary"
-              disabled={busy || !text.trim()}
+              disabled={!canSubmit}
               onClick={async () => {
                 setBusy(true); setErr(""); setMsg("");
                 try {
-                  await api.createPost({ text, publish_now: true, cross_post_bluesky: crossBsky });
-                  setMsg("Queued for publish.");
+                  await api.createPost({
+                    text,
+                    ...(images.length ? { media_keys: mediaKeys() } : {}),
+                    publish_now: true,
+                    cross_post_bluesky: crossBsky,
+                  });
+                  setMsg(images.length ? "Queued for publish with images." : "Queued for publish.");
                   setText("");
+                  setImages([]);
                 } catch (e) {
                   setErr(e instanceof Error ? e.message : "Failed");
                 } finally {
@@ -412,7 +507,14 @@ function Queue() {
         {posts.map((p) => (
           <div className="item" key={p.id}>
             <div>{p.text}</div>
-            <div className="meta">{p.status} · {p.scheduled_for || p.published_at || p.created_at} {p.error ? `· ${p.error}` : ""}</div>
+            <div className="meta">
+              {p.status} · {p.scheduled_for || p.published_at || p.created_at}
+              {(() => {
+                const n = mediaCountFromPost(p);
+                return n ? ` · ${n} image${n === 1 ? "" : "s"}` : "";
+              })()}
+              {p.error ? ` · ${p.error}` : ""}
+            </div>
             <div className="row" style={{ marginTop: 8 }}>
               {p.status !== "sent" && (
                 <button className="btn secondary" onClick={async () => { await api.publishPost(p.id); await load(); }}>Publish</button>

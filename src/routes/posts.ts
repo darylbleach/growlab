@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import { requireAuth } from "../lib/auth";
 import { id } from "../lib/crypto";
+import { MediaKeyError, normalizePostParts, type PostPartInput } from "../lib/post-parts";
 import { getMainAccount } from "../services/posts";
 
 async function resolveAccountId(c: any, userId: string) {
@@ -40,7 +41,8 @@ postsRoutes.post("/", async (c) => {
 
   const body = await c.req.json<{
     text: string;
-    parts?: string[];
+    parts?: PostPartInput[];
+    media_keys?: string[];
     scheduled_for?: string | null;
     publish_now?: boolean;
     auto_retweet_hours?: number | null;
@@ -59,10 +61,21 @@ postsRoutes.post("/", async (c) => {
   }
 
   const postId = id("post");
-  const parts = body.parts?.length
-    ? body.parts.map((t) => ({ text: t }))
-    : [{ text: body.text }];
+  let parts;
+  try {
+    parts = normalizePostParts({
+      text: body.text,
+      parts: body.parts,
+      media_keys: body.media_keys,
+    });
+  } catch (err) {
+    const message = err instanceof MediaKeyError ? err.message : "invalid parts";
+    return c.json({ error: { code: "invalid", message } }, 400);
+  }
   const text = parts.map((p) => p.text).join("\n\n");
+  if (!text.trim()) {
+    return c.json({ error: { code: "invalid", message: "text required" } }, 400);
+  }
 
   let status = "draft";
   let scheduledFor: string | null = body.scheduled_for || null;
@@ -139,9 +152,23 @@ postsRoutes.patch("/:id", async (c) => {
       values.push(v);
     }
   }
-  if (body.parts) {
-    fields.push("parts_json = ?");
-    values.push(JSON.stringify((body.parts as string[]).map((t) => ({ text: t }))));
+  if (body.parts || body.media_keys) {
+    try {
+      const parts = normalizePostParts({
+        text: typeof body.text === "string" ? body.text : undefined,
+        parts: body.parts as PostPartInput[] | undefined,
+        media_keys: body.media_keys,
+      });
+      fields.push("parts_json = ?");
+      values.push(JSON.stringify(parts));
+      if (!("text" in body)) {
+        fields.push("text = ?");
+        values.push(parts.map((p) => p.text).join("\n\n"));
+      }
+    } catch (err) {
+      const message = err instanceof MediaKeyError ? err.message : "invalid parts";
+      return c.json({ error: { code: "invalid", message } }, 400);
+    }
   }
   if (body.scheduled_for && !body.status) {
     fields.push("status = ?");

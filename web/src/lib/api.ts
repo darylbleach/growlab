@@ -23,6 +23,17 @@ export const api = {
   accounts: () => request<{ data: Account[]; x_configured: boolean }>("/api/accounts"),
   posts: (status?: string) => request<{ data: ScheduledPost[] }>(`/api/posts${status ? `?status=${status}` : ""}`),
   createPost: (body: unknown) => request<{ data: ScheduledPost }>("/api/posts", { method: "POST", body: JSON.stringify(body) }),
+  uploadMedia: async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/media/upload", { method: "POST", credentials: "include", body: form });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = json?.error?.message || json?.error?.code || res.statusText || "Upload failed";
+      throw new Error(msg);
+    }
+    return json as { data: { object_key: string; url: string } };
+  },
   publishPost: (id: string) => request(`/api/posts/${id}/publish`, { method: "POST", body: "{}" }),
   deletePost: (id: string) => request(`/api/posts/${id}`, { method: "DELETE" }),
   write: (brief: string) => request<{ data: { text: string } }>("/api/ai/write", { method: "POST", body: JSON.stringify({ brief }) }),
@@ -79,6 +90,7 @@ export type ScheduledPost = {
   id: string;
   status: string;
   text: string;
+  parts_json?: string | null;
   scheduled_for?: string;
   published_at?: string;
   x_post_id?: string;
