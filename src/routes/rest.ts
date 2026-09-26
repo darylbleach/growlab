@@ -233,7 +233,7 @@ articleRoutes.get("/", async (c) => {
   const accountId = await accountIdOrMain(c, user);
   if (!accountId) return c.json({ data: [] });
   const rows = await c.env.DB.prepare(
-    `SELECT id, title, status, cover_url, scheduled_for, published_at, x_article_id, error, created_at, updated_at FROM articles WHERE account_id = ? ORDER BY updated_at DESC`,
+    `SELECT id, title, content_markdown, status, cover_url, scheduled_for, published_at, x_article_id, error, created_at, updated_at FROM articles WHERE account_id = ? ORDER BY updated_at DESC`,
   )
     .bind(accountId)
     .all();
