@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Account, type ScheduledPost } from "./lib/api";
+import { api, type Account, type Article, type ScheduledPost } from "./lib/api";
 
 type Tab =
   | "home"
@@ -905,32 +905,116 @@ function Automations() {
   );
 }
 
+function toLocalInput(value?: string | null) {
+  if (!value) return "";
+  const iso = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function Articles() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<Article[]>([]);
   const [title, setTitle] = useState("");
   const [md, setMd] = useState("");
-  useEffect(() => { api.articles().then((r) => setItems(r.data)).catch(() => null); }, []);
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  async function load() {
+    const rows = (await api.articles()).data;
+    setItems(rows);
+    const next: Record<string, string> = {};
+    for (const a of rows) next[a.id] = toLocalInput(a.scheduled_for);
+    setTimes(next);
+  }
+  useEffect(() => { load().catch(() => null); }, []);
+
   return (
     <div>
       <h1 className="page-title">Articles</h1>
-      <p className="page-sub">Long-form drafts (publish to X Articles requires Premium + X write path).</p>
+      <p className="page-sub">Schedule or publish now to X Articles (Premium). Cron only picks status=scheduled.</p>
       <div className="panel stack" style={{ marginBottom: 16 }}>
         <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
         <textarea className="textarea" value={md} onChange={(e) => setMd(e.target.value)} placeholder="Markdown body" />
-        <button
-          className="btn"
-          onClick={async () => {
-            await api.createArticle({ title, content_markdown: md });
-            setItems((await api.articles()).data);
-            setTitle(""); setMd("");
-          }}
-        >
-          Save draft
-        </button>
+        <input className="input" style={{ maxWidth: 260 }} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+        <div className="row">
+          <button
+            className="btn"
+            onClick={async () => {
+              setErr(""); setMsg("");
+              await api.createArticle({
+                title,
+                content_markdown: md,
+                scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+              });
+              await load();
+              setTitle(""); setMd(""); setScheduledFor("");
+              setMsg("Saved.");
+            }}
+          >
+            Save draft
+          </button>
+        </div>
       </div>
+      {msg && <div className="success" style={{ marginBottom: 12 }}>{msg}</div>}
+      {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
       <div className="list">
         {items.map((a) => (
-          <div className="item" key={a.id}>{a.title}<div className="meta">{a.status}</div></div>
+          <div className="item" key={a.id}>
+            <div>{a.title}</div>
+            <div className="meta">
+              {a.status}
+              {a.scheduled_for ? ` · ${a.scheduled_for}` : ""}
+              {a.x_article_id ? ` · x_article_id ${a.x_article_id}` : ""}
+              {a.error ? ` · ${a.error}` : ""}
+            </div>
+            {a.status !== "published" && (
+              <div className="row" style={{ marginTop: 8 }}>
+                <input
+                  className="input"
+                  style={{ maxWidth: 260 }}
+                  type="datetime-local"
+                  value={times[a.id] || ""}
+                  onChange={(e) => setTimes((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                />
+                <button
+                  className="btn secondary"
+                  onClick={async () => {
+                    setErr(""); setMsg("");
+                    try {
+                      await api.patchArticle(a.id, {
+                        scheduled_for: times[a.id] ? new Date(times[a.id]).toISOString() : null,
+                      });
+                      await load();
+                      setMsg("Schedule saved.");
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : "Schedule failed");
+                    }
+                  }}
+                >
+                  Save schedule
+                </button>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    setErr(""); setMsg("");
+                    try {
+                      await api.publishArticle(a.id);
+                      await load();
+                      setMsg("Publish queued.");
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : "Publish failed");
+                    }
+                  }}
+                >
+                  Publish now
+                </button>
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </div>

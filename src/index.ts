@@ -24,6 +24,7 @@ import {
   workerRoutes,
 } from "./routes/rest";
 import { enqueueDueAutomations, enqueueDuePosts, publishScheduledPost, runDueAutomations, getAccount } from "./services/posts";
+import { enqueueDueArticles, publishScheduledArticle } from "./services/articles";
 import { runSignalAgent, writeDraft } from "./services/ai-content";
 import { getValidAccessToken, searchRecent, sendDm } from "./lib/x";
 import { id } from "./lib/crypto";
@@ -108,6 +109,9 @@ async function handleJob(env: Env, msg: JobMessage) {
   switch (msg.type) {
     case "publish_post":
       await publishScheduledPost(env, msg.postId);
+      break;
+    case "publish_article":
+      await publishScheduledArticle(env, msg.articleId);
       break;
     case "run_automations":
       await runDueAutomations(env);
@@ -209,6 +213,7 @@ async function handleJob(env: Env, msg: JobMessage) {
 
 async function runCron(env: Env) {
   const published = await enqueueDuePosts(env);
+  const articles = await enqueueDueArticles(env);
   await enqueueDueAutomations(env);
 
   // content workers due
@@ -231,7 +236,7 @@ async function runCron(env: Env) {
     }
   }
 
-  return { published };
+  return { published, articles };
 }
 
 async function serveSite(env: Env, pathname: string): Promise<Response> {

@@ -377,3 +377,58 @@ export async function getValidAccessToken(env: Env, account: AccountTokens): Pro
 export function estimateXWriteCost(text: string): number {
   return /https?:\/\//i.test(text) ? 0.2 : 0.015;
 }
+
+export type ArticleContentState = {
+  blocks: Array<Record<string, unknown>>;
+  entities: Array<Record<string, unknown>>;
+};
+
+/**
+ * Create an X Article draft.
+ * Auth: OAuth 2.0 user token with tweet.write, or OAuth 1.0a UserToken (same xFetch path as tweets).
+ * Cover media must already be uploaded via uploadMedia (OAuth 1.0a v1.1).
+ */
+export async function createArticleDraft(
+  env: Env,
+  auth: XAuth | string,
+  input: { title: string; content_state: ArticleContentState; coverMediaId?: string },
+): Promise<{ id: string; title: string }> {
+  const title = input.title.trim();
+  if (!title) throw new Error("article_title_required");
+  const body: Record<string, unknown> = {
+    title,
+    content_state: input.content_state,
+  };
+  if (input.coverMediaId) {
+    body.cover_media = { media_category: "tweet_image", media_id: input.coverMediaId };
+  }
+  const res = await xFetch(env, auth, "/articles/draft", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`create article draft failed: ${res.status} ${text}`);
+  const json = JSON.parse(text) as { data?: { id?: string; title?: string }; errors?: unknown };
+  const id = json.data?.id;
+  if (!id) throw new Error(`create article draft returned no id: ${text}`);
+  return { id, title: json.data?.title || title };
+}
+
+/**
+ * Publish a draft Article. Returns the seed post_id (a tweet id, not the Article id).
+ * GrowLab stores the Article id from createArticleDraft in articles.x_article_id.
+ */
+export async function publishArticle(
+  env: Env,
+  auth: XAuth | string,
+  articleId: string,
+): Promise<{ post_id: string }> {
+  if (!articleId) throw new Error("article_id_required");
+  const res = await xFetch(env, auth, `/articles/${articleId}/publish`, { method: "POST" });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`publish article failed: ${res.status} ${text}`);
+  const json = JSON.parse(text) as { data?: { post_id?: string } };
+  const postId = json.data?.post_id;
+  if (!postId) throw new Error(`publish article returned no post_id: ${text}`);
+  return { post_id: postId };
+}
