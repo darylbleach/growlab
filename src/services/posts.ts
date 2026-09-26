@@ -1,6 +1,7 @@
 import type { Env } from "../env";
-import { estimateXWriteCost, createTweet, getValidAccessToken, type AccountTokens } from "../lib/x";
+import { estimateXWriteCost, createTweet, getValidAccessToken, uploadMedia, type AccountTokens } from "../lib/x";
 import { logUsage } from "../lib/ai";
+import { partsForPublish } from "../lib/post-parts";
 
 export async function getAccount(db: D1Database, accountId: string) {
   return db
@@ -51,14 +52,13 @@ export async function publishScheduledPost(env: Env, postId: string) {
 
   try {
     const token = await getValidAccessToken(env, account);
-    const parts: Array<{ text: string }> = post.parts_json
-      ? JSON.parse(post.parts_json)
-      : [{ text: post.text }];
+    const parts = partsForPublish(post.text, post.parts_json);
 
     let previousId: string | undefined;
     const ids: string[] = [];
     for (const part of parts) {
-      const created = await createTweet(env, token, part.text, previousId);
+      const mediaIds = await mediaIdsForPart(env, token, part.media_keys);
+      const created = await createTweet(env, token, part.text, previousId, mediaIds);
       ids.push(created.id);
       previousId = created.id;
       await logUsage(env.DB, /https?:\/\//i.test(part.text) ? "x_write_url" : "x_write", estimateXWriteCost(part.text), post.account_id);
@@ -155,6 +155,36 @@ export async function publishScheduledPost(env: Env, postId: string) {
       .run();
     throw err;
   }
+}
+
+async function mediaIdsForPart(
+  env: Env,
+  token: Awaited<ReturnType<typeof getValidAccessToken>>,
+  mediaKeys?: string[],
+): Promise<string[] | undefined> {
+  if (!mediaKeys?.length) return undefined;
+  const mediaIds: string[] = [];
+  for (const key of mediaKeys) {
+    const obj = await env.MEDIA.get(key);
+    if (!obj) throw new Error(`media_missing:${key}`);
+    const bytes = await obj.arrayBuffer();
+    if (!bytes.byteLength) throw new Error(`media_unreadable:${key}`);
+    const mime = obj.httpMetadata?.contentType || mimeFromKey(key);
+    const filename = key.split("/").pop() || "image.jpg";
+    mediaIds.push(await uploadMedia(env, token, bytes, mime, filename));
+  }
+  if (mediaIds.length !== mediaKeys.length) {
+    throw new Error("media_upload_incomplete");
+  }
+  return mediaIds;
+}
+
+function mimeFromKey(key: string): string {
+  const lower = key.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
 }
 
 async function crossPostBluesky(env: Env, accountId: string, text: string) {
