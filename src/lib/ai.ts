@@ -56,7 +56,7 @@ async function anthropicChat(
     method: "POST",
     headers: {
       "x-api-key": key,
-      "anthropic-version": "2024-06-01",
+      "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
