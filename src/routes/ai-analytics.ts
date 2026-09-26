@@ -19,6 +19,7 @@ import {
 } from "../lib/x";
 import { getAccount } from "../services/posts";
 import { logUsage } from "../lib/ai";
+import { WORST_POSTS_SQL } from "../lib/analytics-worst";
 
 async function accountIdOrMain(c: any, userId: string) {
   return c.req.query("account_id") || (await getMainAccount(c.env.DB, userId))?.id || null;
@@ -46,8 +47,13 @@ aiRoutes.post("/rewrite", async (c) => {
   const accountId = await accountIdOrMain(c, user);
   if (!accountId) return c.json({ error: { code: "no_account" } }, 400);
   const body = await c.req.json<{ text: string; closeness?: number; instruction?: string }>();
-  const text = await rewriteDraft(c.env, accountId, body.text, body.closeness ?? 50, body.instruction);
-  return c.json({ data: { text } });
+  try {
+    const text = await rewriteDraft(c.env, accountId, body.text, body.closeness ?? 50, body.instruction);
+    return c.json({ data: { text } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Rewrite failed";
+    return c.json({ error: { code: "rewrite_failed", message } }, 500);
+  }
 });
 
 aiRoutes.post("/thread", async (c) => {
@@ -188,9 +194,7 @@ analyticsRoutes.get("/", async (c) => {
     .bind(accountId)
     .all();
 
-  const worst = await c.env.DB.prepare(
-    `SELECT * FROM posts_cache WHERE account_id = ? AND is_reply = 0 ORDER BY impressions ASC, likes ASC LIMIT 10`,
-  )
+  const worst = await c.env.DB.prepare(WORST_POSTS_SQL)
     .bind(accountId)
     .all();
 

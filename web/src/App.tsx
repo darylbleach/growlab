@@ -131,7 +131,7 @@ export default function App() {
         {tab === "compose" && <Compose aiConfigured={aiConfigured} />}
         {tab === "queue" && <Queue />}
         {tab === "ai" && <AiStudio aiConfigured={aiConfigured} />}
-        {tab === "analytics" && <Analytics />}
+        {tab === "analytics" && <Analytics aiConfigured={aiConfigured} />}
         {tab === "engage" && <Engage />}
         {tab === "signals" && <Signals />}
         {tab === "inspiration" && <Inspiration />}
@@ -621,13 +621,57 @@ function AiStudio({ aiConfigured }: { aiConfigured: boolean }) {
   );
 }
 
-function Analytics() {
+function followUpAtIso() {
+  return new Date(Date.now() + 24 * 3600_000).toISOString();
+}
+
+function Analytics({ aiConfigured }: { aiConfigured: boolean }) {
   const [data, setData] = useState<any>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState("");
+  const [actionErr, setActionErr] = useState("");
   async function load() {
     setData((await api.analytics()).data);
   }
   useEffect(() => { load().catch(() => null); }, []);
+
+  async function rewriteToDraft(p: { id: string; text: string }) {
+    setBusyId(p.id);
+    setActionErr("");
+    setActionMsg("");
+    try {
+      const r = await api.rewrite(p.text, 55);
+      await api.createPost({ text: r.data.text });
+      setActionMsg("Rewrite saved as a draft in Queue.");
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : "Rewrite failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function queueFollowUp(p: { id: string; text: string }) {
+    setBusyId(p.id);
+    setActionErr("");
+    setActionMsg("");
+    try {
+      const r = await api.rewrite(
+        p.text,
+        40,
+        "Write a short follow-up post with a new angle, question, or piece of proof. Do not copy the original.",
+      );
+      const scheduled_for = followUpAtIso();
+      await api.createPost({ text: r.data.text, scheduled_for });
+      setActionMsg("Follow-up queued for ~24h from now. Edit it in Queue if you want.");
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : "Queue follow-up failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const totals = data?.totals || {};
+  const worst = data?.worst || [];
   return (
     <div>
       <h1 className="page-title">Analytics</h1>
@@ -653,11 +697,39 @@ function Analytics() {
         </div>
         <div className="panel">
           <h3>Needs work</h3>
+          <p className="panel-sub">Bottom 10 roots by impressions (replies excluded; posts younger than 24h omitted from this list only). Fresh posts often look quiet until they get distribution.</p>
+          {actionMsg && <div className="success" style={{ marginBottom: 8 }}>{actionMsg}</div>}
+          {actionErr && <div className="error" style={{ marginBottom: 8 }}>{actionErr}</div>}
           <div className="list">
-            {(data?.worst || []).map((p: any) => (
-              <div className="item" key={p.id}>{p.text}<div className="meta">{p.impressions} imp · {p.likes} likes</div></div>
+            {worst.map((p: any) => (
+              <div className="item" key={p.id}>
+                {p.text}
+                <div className="meta">{p.impressions} imp · {p.likes} likes</div>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button
+                    className="btn ghost"
+                    disabled={!aiConfigured || busyId === p.id}
+                    onClick={() => rewriteToDraft(p)}
+                  >
+                    {busyId === p.id ? "Working…" : "Rewrite"}
+                  </button>
+                  <button
+                    className="btn secondary"
+                    disabled={!aiConfigured || busyId === p.id}
+                    onClick={() => queueFollowUp(p)}
+                  >
+                    Queue follow-up
+                  </button>
+                </div>
+              </div>
             ))}
+            {data && !worst.length && (
+              <div className="empty">No roots older than 24h in the bottom 10 yet.</div>
+            )}
           </div>
+          {!aiConfigured && (
+            <div className="empty">Add an LLM API key to rewrite or queue a follow-up.</div>
+          )}
         </div>
       </div>
     </div>

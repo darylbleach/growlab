@@ -13,7 +13,7 @@
     "db:migrate": "wrangler d1 migrations apply growlab --remote",
     "db:migrate:local": "wrangler d1 migrations apply growlab --local",
     "types": "wrangler types",
-    "test": "node --experimental-strip-types --test src/lib/markdown-to-draftjs.test.ts src/lib/article-schedule.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/markdown-to-draftjs.test.ts src/lib/article-schedule.test.ts src/lib/analytics-worst.test.ts"
   },
   "keywords": [],
   "author": "",
