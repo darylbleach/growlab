@@ -108,6 +108,28 @@ a { color: var(--accent); }
   padding: 10px 12px;
 }
 .textarea { min-height: 120px; resize: vertical; }
+.textarea.article-body {
+  min-height: 280px;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.article-preview {
+  min-height: 280px;
+  max-height: 480px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg0);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
 .btn {
   background: var(--accent);
   color: #04140c;

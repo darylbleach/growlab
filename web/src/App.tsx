@@ -986,6 +986,10 @@ function toLocalInput(value?: string | null) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function canEditArticle(status: string) {
+  return status === "draft" || status === "scheduled" || status === "failed";
+}
+
 function Articles() {
   const [items, setItems] = useState<Article[]>([]);
   const [title, setTitle] = useState("");
@@ -994,6 +998,9 @@ function Articles() {
   const [times, setTimes] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editMd, setEditMd] = useState("");
 
   async function load() {
     const rows = (await api.articles()).data;
@@ -1003,6 +1010,18 @@ function Articles() {
     setTimes(next);
   }
   useEffect(() => { load().catch(() => null); }, []);
+
+  async function openArticle(a: Article) {
+    setErr(""); setMsg("");
+    let row = a;
+    if (row.content_markdown == null) {
+      const res = await api.getArticle(a.id);
+      row = res.data;
+    }
+    setOpenId(row.id);
+    setEditTitle(row.title);
+    setEditMd(row.content_markdown || "");
+  }
 
   return (
     <div>
@@ -1034,7 +1053,10 @@ function Articles() {
       {msg && <div className="success" style={{ marginBottom: 12 }}>{msg}</div>}
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
       <div className="list">
-        {items.map((a) => (
+        {items.map((a) => {
+          const open = openId === a.id;
+          const editable = canEditArticle(a.status);
+          return (
           <div className="item" key={a.id}>
             <div>{a.title}</div>
             <div className="meta">
@@ -1043,8 +1065,25 @@ function Articles() {
               {a.x_article_id ? ` · x_article_id ${a.x_article_id}` : ""}
               {a.error ? ` · ${a.error}` : ""}
             </div>
-            {a.status !== "published" && (
-              <div className="row" style={{ marginTop: 8 }}>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button
+                className="btn secondary"
+                onClick={async () => {
+                  if (open) {
+                    setOpenId(null);
+                    return;
+                  }
+                  try {
+                    await openArticle(a);
+                  } catch (e) {
+                    setErr(e instanceof Error ? e.message : "Open failed");
+                  }
+                }}
+              >
+                {open ? "Close" : editable ? "Open" : "View"}
+              </button>
+              {a.status !== "published" && (
+                <>
                 <input
                   className="input"
                   style={{ maxWidth: 260 }}
@@ -1084,10 +1123,55 @@ function Articles() {
                 >
                   Publish now
                 </button>
+                </>
+              )}
+            </div>
+            {open && (
+              <div className="stack" style={{ marginTop: 12 }}>
+                <input
+                  className="input"
+                  value={editTitle}
+                  readOnly={!editable}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Title"
+                />
+                <div className="grid-2">
+                  <textarea
+                    className="textarea article-body"
+                    value={editMd}
+                    readOnly={!editable}
+                    onChange={(e) => setEditMd(e.target.value)}
+                    placeholder="Markdown body"
+                  />
+                  <pre className="article-preview">{editMd || "Preview"}</pre>
+                </div>
+                {editable && (
+                  <div className="row">
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        setErr(""); setMsg("");
+                        try {
+                          await api.patchArticle(a.id, {
+                            title: editTitle,
+                            content_markdown: editMd,
+                          });
+                          await load();
+                          setMsg("Article saved.");
+                        } catch (e) {
+                          setErr(e instanceof Error ? e.message : "Save failed");
+                        }
+                      }}
+                    >
+                      Save article
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
