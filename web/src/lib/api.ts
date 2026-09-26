@@ -68,8 +68,10 @@ export const api = {
   draftSuggestion: (id: string) => request(`/api/workers/suggestions/${id}/draft`, { method: "POST", body: "{}" }),
   dismissSuggestion: (id: string) => request(`/api/workers/suggestions/${id}/dismiss`, { method: "POST", body: "{}" }),
   dms: () => request<{ data: any[] }>("/api/dms/queue"),
-  articles: () => request<{ data: any[] }>("/api/articles"),
+  articles: () => request<{ data: Article[] }>("/api/articles"),
   createArticle: (body: unknown) => request("/api/articles", { method: "POST", body: JSON.stringify(body) }),
+  patchArticle: (id: string, body: unknown) => request(`/api/articles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  publishArticle: (id: string) => request(`/api/articles/${id}/publish`, { method: "POST", body: "{}" }),
   usage: () => request<{ data: any }>("/api/usage"),
   createApiKey: (name: string) => request<{ key: string }>("/api/auth/api-keys", { method: "POST", body: JSON.stringify({ name }) }),
   connectBluesky: (handle: string, app_password: string) =>
@@ -84,6 +86,19 @@ export type Account = {
   display_name?: string;
   avatar_url?: string;
   is_main: number;
+};
+
+export type Article = {
+  id: string;
+  title: string;
+  status: string;
+  cover_url?: string | null;
+  scheduled_for?: string | null;
+  published_at?: string | null;
+  x_article_id?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at?: string;
 };
 
 export type ScheduledPost = {

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import { requireAuth } from "../lib/auth";
 import { encryptText, id } from "../lib/crypto";
+import { normalizeScheduledFor, statusForSchedulePatch } from "../lib/article-schedule";
 import { getMainAccount } from "../services/posts";
 import { chat, aiConfigured, logUsage } from "../lib/ai";
 
@@ -232,7 +233,7 @@ articleRoutes.get("/", async (c) => {
   const accountId = await accountIdOrMain(c, user);
   if (!accountId) return c.json({ data: [] });
   const rows = await c.env.DB.prepare(
-    `SELECT id, title, status, cover_url, scheduled_for, published_at, created_at, updated_at FROM articles WHERE account_id = ? ORDER BY updated_at DESC`,
+    `SELECT id, title, status, cover_url, scheduled_for, published_at, x_article_id, error, created_at, updated_at FROM articles WHERE account_id = ? ORDER BY updated_at DESC`,
   )
     .bind(accountId)
     .all();
@@ -244,14 +245,27 @@ articleRoutes.post("/", async (c) => {
   if (typeof user !== "string") return user;
   const accountId = await accountIdOrMain(c, user);
   if (!accountId) return c.json({ error: { code: "no_account" } }, 400);
-  const body = await c.req.json<{ title: string; content_markdown: string }>();
+  const body = await c.req.json<{
+    title: string;
+    content_markdown: string;
+    scheduled_for?: string | null;
+  }>();
+  if (!body.title?.trim()) return c.json({ error: { code: "invalid", message: "title required" } }, 400);
+  let scheduledFor: string | null = null;
+  try {
+    if ("scheduled_for" in body) scheduledFor = normalizeScheduledFor(body.scheduled_for);
+  } catch {
+    return c.json({ error: { code: "invalid", message: "invalid scheduled_for" } }, 400);
+  }
   const articleId = id("art");
+  const status = scheduledFor ? "scheduled" : "draft";
   await c.env.DB.prepare(
-    `INSERT INTO articles (id, account_id, title, content_markdown) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO articles (id, account_id, title, content_markdown, status, scheduled_for) VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(articleId, accountId, body.title, body.content_markdown)
+    .bind(articleId, accountId, body.title, body.content_markdown || "", status, scheduledFor)
     .run();
-  return c.json({ data: { id: articleId } }, 201);
+  const row = await c.env.DB.prepare(`SELECT * FROM articles WHERE id = ?`).bind(articleId).first();
+  return c.json({ data: row }, 201);
 });
 
 articleRoutes.get("/:id", async (c) => {
@@ -265,6 +279,11 @@ articleRoutes.get("/:id", async (c) => {
 articleRoutes.patch("/:id", async (c) => {
   const user = await requireAuth(c);
   if (typeof user !== "string") return user;
+  const articleId = c.req.param("id");
+  const existing = await c.env.DB.prepare(`SELECT id, status FROM articles WHERE id = ?`)
+    .bind(articleId)
+    .first<{ id: string; status: string }>();
+  if (!existing) return c.json({ error: { code: "not_found" } }, 404);
   const body = await c.req.json<{
     title?: string;
     content_markdown?: string;
@@ -274,17 +293,56 @@ articleRoutes.patch("/:id", async (c) => {
   }>();
   const fields: string[] = [];
   const values: unknown[] = [];
-  for (const key of ["title", "content_markdown", "cover_url", "scheduled_for", "status"] as const) {
+  for (const key of ["title", "content_markdown", "cover_url", "status"] as const) {
     if (key in body) {
       fields.push(`${key} = ?`);
       values.push(body[key]);
     }
   }
+  if ("scheduled_for" in body) {
+    let scheduledFor: string | null;
+    try {
+      scheduledFor = normalizeScheduledFor(body.scheduled_for);
+    } catch {
+      return c.json({ error: { code: "invalid", message: "invalid scheduled_for" } }, 400);
+    }
+    fields.push("scheduled_for = ?");
+    values.push(scheduledFor);
+    const flipped = statusForSchedulePatch(
+      scheduledFor,
+      "status" in body ? body.status : undefined,
+    );
+    if (flipped) {
+      fields.push("status = ?");
+      values.push(flipped);
+    }
+  }
   if (!fields.length) return c.json({ error: { code: "empty" } }, 400);
   fields.push("updated_at = datetime('now')");
-  values.push(c.req.param("id"));
+  values.push(articleId);
   await c.env.DB.prepare(`UPDATE articles SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
-  return c.json({ ok: true });
+  const row = await c.env.DB.prepare(`SELECT * FROM articles WHERE id = ?`).bind(articleId).first();
+  return c.json({ data: row, ok: true });
+});
+
+articleRoutes.post("/:id/publish", async (c) => {
+  const user = await requireAuth(c);
+  if (typeof user !== "string") return user;
+  const articleId = c.req.param("id");
+  const existing = await c.env.DB.prepare(`SELECT id, status FROM articles WHERE id = ?`)
+    .bind(articleId)
+    .first<{ id: string; status: string }>();
+  if (!existing) return c.json({ error: { code: "not_found" } }, 404);
+  if (existing.status === "published") {
+    return c.json({ error: { code: "already_published", message: "Article already published" } }, 409);
+  }
+  await c.env.DB.prepare(
+    `UPDATE articles SET status = 'scheduled', scheduled_for = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+  )
+    .bind(articleId)
+    .run();
+  await c.env.JOBS.send({ type: "publish_article", articleId });
+  return c.json({ ok: true, queued: true });
 });
 
 articleRoutes.post("/:id/cover", async (c) => {

@@ -24,6 +24,7 @@ export interface Env {
 
 export type JobMessage =
   | { type: "publish_post"; postId: string }
+  | { type: "publish_article"; articleId: string }
   | { type: "run_automations" }
   | { type: "sync_analytics"; accountId: string }
   | { type: "run_signal_agent"; agentId: string }
