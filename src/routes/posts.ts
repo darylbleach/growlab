@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import { requireAuth } from "../lib/auth";
 import { id } from "../lib/crypto";
+import { normalizeScheduledFor, toSqliteUtc } from "../lib/article-schedule";
 import { MediaKeyError, normalizePostParts, type PostPartInput } from "../lib/post-parts";
 import { getMainAccount } from "../services/posts";
 
@@ -77,12 +78,19 @@ postsRoutes.post("/", async (c) => {
     return c.json({ error: { code: "invalid", message: "text required" } }, 400);
   }
 
+  let scheduledFor: string | null = null;
+  try {
+    if (body.publish_now) {
+      scheduledFor = toSqliteUtc(new Date().toISOString());
+    } else if ("scheduled_for" in body) {
+      scheduledFor = normalizeScheduledFor(body.scheduled_for);
+    }
+  } catch {
+    return c.json({ error: { code: "invalid", message: "invalid scheduled_for" } }, 400);
+  }
+
   let status = "draft";
-  let scheduledFor: string | null = body.scheduled_for || null;
-  if (body.publish_now) {
-    status = "queued";
-    scheduledFor = new Date().toISOString();
-  } else if (scheduledFor) {
+  if (body.publish_now || scheduledFor) {
     status = "queued";
   }
 
@@ -134,7 +142,6 @@ postsRoutes.patch("/:id", async (c) => {
   const values: unknown[] = [];
   const map: Record<string, string> = {
     text: "text",
-    scheduled_for: "scheduled_for",
     status: "status",
     auto_retweet_hours: "auto_retweet_hours",
     auto_delete_hours: "auto_delete_hours",
@@ -150,6 +157,20 @@ postsRoutes.patch("/:id", async (c) => {
       let v = body[k];
       if (k === "auto_dm" || k === "cross_post_bluesky") v = v ? 1 : 0;
       values.push(v);
+    }
+  }
+  if ("scheduled_for" in body) {
+    let scheduledFor: string | null;
+    try {
+      scheduledFor = normalizeScheduledFor(body.scheduled_for);
+    } catch {
+      return c.json({ error: { code: "invalid", message: "invalid scheduled_for" } }, 400);
+    }
+    fields.push("scheduled_for = ?");
+    values.push(scheduledFor);
+    if (scheduledFor && !body.status) {
+      fields.push("status = ?");
+      values.push("queued");
     }
   }
   if (body.parts || body.media_keys) {
@@ -169,10 +190,6 @@ postsRoutes.patch("/:id", async (c) => {
       const message = err instanceof MediaKeyError ? err.message : "invalid parts";
       return c.json({ error: { code: "invalid", message } }, 400);
     }
-  }
-  if (body.scheduled_for && !body.status) {
-    fields.push("status = ?");
-    values.push("queued");
   }
   if (!fields.length) return c.json({ error: { code: "empty" } }, 400);
   fields.push("updated_at = datetime('now')");
