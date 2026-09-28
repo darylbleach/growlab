@@ -6,6 +6,8 @@ describe("article-schedule", () => {
   it("stores ISO as sqlite UTC for cron comparison", () => {
     assert.equal(toSqliteUtc("2026-10-03T09:00:00.000Z"), "2026-10-03 09:00:00");
     assert.equal(normalizeScheduledFor("2026-10-10T09:00:00Z"), "2026-10-10 09:00:00");
+    assert.equal(normalizeScheduledFor("2026-09-28T08:30:00+01:00"), "2026-09-28 07:30:00");
+    assert.equal(normalizeScheduledFor("2026-09-28 07:30:00"), "2026-09-28 07:30:00");
     assert.equal(normalizeScheduledFor(""), null);
     assert.equal(normalizeScheduledFor(null), null);
   });
