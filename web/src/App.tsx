@@ -35,6 +35,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("home");
+  const [navOpen, setNavOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [xConfigured, setXConfigured] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -97,27 +98,45 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">Grow<span>Lab</span></div>
-        {TABS.map((t) => (
+      <aside className={`sidebar${navOpen ? " open" : ""}`}>
+        <div className="sidebar-top">
+          <div className="brand">Grow<span>Lab</span></div>
           <button
-            key={t.id}
-            className={`nav-btn ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
+            type="button"
+            className="nav-toggle"
+            aria-expanded={navOpen}
+            aria-controls="app-nav"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            onClick={() => setNavOpen((open) => !open)}
           >
-            {t.label}
+            {navOpen ? "×" : "☰"}
           </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button
-          className="nav-btn"
-          onClick={async () => {
-            await api.logout();
-            setAuthed(false);
-          }}
-        >
-          Log out
-        </button>
+        </div>
+        <nav id="app-nav" className="sidebar-nav">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`nav-btn ${tab === t.id ? "active" : ""}`}
+              onClick={() => {
+                setTab(t.id);
+                setNavOpen(false);
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+          <div className="sidebar-spacer" />
+          <button
+            className="nav-btn"
+            onClick={async () => {
+              setNavOpen(false);
+              await api.logout();
+              setAuthed(false);
+            }}
+          >
+            Log out
+          </button>
+        </nav>
       </aside>
       <main className="main">
         {tab === "home" && (
